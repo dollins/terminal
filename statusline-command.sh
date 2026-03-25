@@ -39,14 +39,40 @@ else
   tokens="${total}"
 fi
 
+# Platform-aware date formatting (macOS: date -r, Linux: date -d @)
+ts_date() {
+  if date -r 0 +%s >/dev/null 2>&1; then
+    date -r "$1" +"$2" 2>/dev/null || echo ""
+  else
+    date -d "@$1" +"$2" 2>/dev/null || echo ""
+  fi
+}
+
 fmt_reset() {
   if [ -n "$1" ] && [ "$1" != "null" ]; then
-    _hour=$(date -r "$1" +"%-H" 2>/dev/null || echo "0")
+    _hour=$(ts_date "$1" "%-H")
+    [ -z "$_hour" ] && _hour=0
     _h=$(( _hour % 12 ))
     [ "$_h" -eq 0 ] && _h=12
-    # nf-weather-time icons: U+E381 (1) .. U+E38C (12)
     i_clock=$(printf '\xEE\x8E'"$(printf '\\x%02x' $(( 0x80 + _h )))")
-    date -r "$1" +"%-d/%-m ${i_clock}%Hh" 2>/dev/null || echo ""
+    ts_date "$1" "%-d/%-m ${i_clock}%Hh"
+  fi
+}
+
+# Remote path translation (set CLAUDE_SSH_HOST=fedora-vm on remote)
+make_vscode_url() {
+  if [ -n "$CLAUDE_SSH_HOST" ]; then
+    echo "vscode://vscode-remote/ssh-remote+${CLAUDE_SSH_HOST}$1"
+  else
+    echo "vscode://file$1"
+  fi
+}
+
+make_folder_url() {
+  if [ -n "$CLAUDE_SSH_HOST" ]; then
+    echo "vscode://vscode-remote/ssh-remote+${CLAUDE_SSH_HOST}$1"
+  else
+    echo "file://$1"
   fi
 }
 
@@ -71,7 +97,6 @@ out=""
 
 seg() {
   _bg="$1"; _fg="$2"; _txt="$3"; _url="${4:-}"
-  # Wrap text in OSC 8 hyperlink if URL provided
   if [ -n "$_url" ]; then
     _txt="$(osc_open "$_url")${_txt}$(osc_close)"
   fi
@@ -88,7 +113,7 @@ endcap() {
 }
 
 # Line 1
-seg "88;91;112" "205;214;244" "${i_folder} ${dir}" "file://${cwd}"
+seg "88;91;112" "205;214;244" "${i_folder} ${dir}" "$(make_folder_url "$cwd")"
 
 if [ -n "$branch" ]; then
   branch_url=""
@@ -143,12 +168,33 @@ fi
 
 endcap
 
-# Line 2: IDE + rate limits
+# Claude account (cached per session)
+session_id=$(echo "$input" | jq -r '.session_id // ""')
+cache_file="/tmp/cc-auth-${session_id}"
+if [ -n "$session_id" ] && [ -f "$cache_file" ]; then
+  claude_email=$(cat "$cache_file")
+elif [ -n "$session_id" ]; then
+  claude_email=$(claude auth status 2>/dev/null | jq -r '.email // empty' 2>/dev/null)
+  [ -n "$claude_email" ] && echo "$claude_email" > "$cache_file"
+fi
+
+# Line 2: IDE + remote indicator + account + rate limits
 prev_bg=""
 out="${out}
 "
 i_vscode=$(printf '\xEE\xA3\x9A')   # U+E8DA vscode icon
-seg "30;136;229" "255;255;255" "${i_vscode} VSC" "vscode://file${cwd}"
+seg "30;136;229" "255;255;255" "${i_vscode} VSC" "$(make_vscode_url "$cwd")"
+
+# Remote host indicator
+if [ -n "$CLAUDE_SSH_HOST" ]; then
+  i_remote=$(printf '\xEF\x82\xA0')   # U+F0A0 nf-fa-hdd_o
+  seg "250;179;135" "30;30;46" "${i_remote} ${CLAUDE_SSH_HOST}"
+fi
+
+if [ -n "$claude_email" ]; then
+  i_user=$(printf '\xEF\x80\x87')   # U+F007 nf-fa-user
+  seg "88;91;112" "205;214;244" "${i_user} ${claude_email}" "https://claude.ai/settings/profile"
+fi
 
 if [ -n "$rl_5h" ]; then
   rl5_int=$(printf '%.0f' "$rl_5h" 2>/dev/null || echo "0")
@@ -170,7 +216,7 @@ fi
 
 if [ -n "$transcript" ]; then
   i_transcript=$(printf '\xEF\x81\x85')   # U+F045 nf-fa-pencil_square_o
-  seg "88;91;112" "205;214;244" "${i_transcript} transcript" "vscode://file${transcript}"
+  seg "88;91;112" "205;214;244" "${i_transcript} transcript" "$(make_vscode_url "$transcript")"
 fi
 
 endcap
