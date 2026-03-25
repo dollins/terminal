@@ -81,89 +81,93 @@ Skript detekuje env var `CLAUDE_SSH_HOST`. Když je nastavený:
 
 Skript je cross-platform (macOS `date -r` i Linux `date -d @`).
 
-## VM Setup (Fedora + Claude Code enterprise)
+## Docker Setup (Claude Code enterprise)
 
-Umožňuje mít dva Claude účty paralelně — osobní lokálně, enterprise přes SSH do VM.
+Umožňuje mít dva Claude účty paralelně — osobní lokálně, enterprise v Docker kontejneru přes SSH.
 
-### 1. UTM + Fedora
+### Proč Docker místo VM?
+
+| | VM (UTM) | Docker |
+|---|---|---|
+| Start | ~30s | ~1s |
+| RAM | 8 GB fixně | sdílený |
+| Disk | 32 GB image | ~500 MB |
+| Údržba | dnf update | rebuild image |
+| Portabilita | lokálně | kdekoli |
+
+### Soubory
+
+- `Dockerfile` — Fedora 43 minimal + Claude Code + SSH
+- `docker-compose.yml` — služba, volumes, port mapping
+
+### 1. Spustit kontejner
 
 ```bash
-# Na macOS:
-brew install --cask utm
+cd ~/Desktop/work/terminal
+docker compose up -d --build
 ```
 
-- Stáhnout Fedora Server aarch64 (minimal/netinstall) z fedoraproject.org
-- UTM → New VM → Virtualize → Linux → připojit ISO
-- RAM: 8 GB, CPU: 4 cores, Disk: 32 GB
-- Nainstalovat Fedora s "Minimal Install"
-
-### 2. VM post-install
+### 2. Nastavit SSH klíč
 
 ```bash
-# Na VM:
-sudo dnf update -y
-sudo dnf install -y git curl jq bc nodejs npm openssh-server
-sudo systemctl enable --now sshd
+# Zkopírovat public key do kontejneru:
+ssh-copy-id -p 2222 petr@localhost
 
-# Statická IP (příklad):
-sudo nmcli con mod "Wired connection 1" ipv4.addresses 192.168.64.10/24
-sudo nmcli con mod "Wired connection 1" ipv4.gateway 192.168.64.1
-sudo nmcli con mod "Wired connection 1" ipv4.dns 192.168.64.1
-sudo nmcli con mod "Wired connection 1" ipv4.method manual
-sudo nmcli con up "Wired connection 1"
+# Nebo ručně:
+cat ~/.ssh/id_ed25519.pub | ssh -p 2222 petr@localhost "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
 ```
 
-### 3. SSH z macOS
+### 3. Přihlásit Claude Code (enterprise)
 
 ```bash
-# Vygenerovat klíč:
-ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_vm -C "petr@fedora-vm"
-ssh-copy-id -i ~/.ssh/id_ed25519_vm.pub petr@192.168.64.10
-
-# Přidat do ~/.ssh/config:
-Host fedora-vm
-  HostName 192.168.64.10
-  User petr
-  IdentityFile ~/.ssh/id_ed25519_vm
-  IdentitiesOnly yes
-  ForwardAgent yes
+ssh claude-work
+claude auth login --sso
+# Otevře URL → zkopírovat do macOS prohlížeče → enterprise účet
 ```
 
-### 4. Claude Code na VM
+### 4. SSH config (macOS ~/.ssh/config)
 
-```bash
-ssh fedora-vm
-npm install -g @anthropic-ai/claude-code
-claude auth login --sso    # enterprise účet (otevře URL — zkopírovat do macOS prohlížeče)
-
-# Zkopírovat nastavení:
-mkdir -p ~/.claude
-# (z macOS): scp statusline-command.sh fedora-vm:~/.claude/
-# (z macOS): scp settings.json fedora-vm:~/.claude/
-
-# Přidat do ~/.bashrc na VM:
-echo 'export CLAUDE_SSH_HOST="fedora-vm"' >> ~/.bashrc
+```
+Host claude-work
+    HostName localhost
+    User petr
+    Port 2222
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
 ```
 
 ### 5. Aliasy (macOS ~/.zshrc)
 
 ```bash
 alias claude-personal='claude'
-claude-work() { ssh -t fedora-vm "claude $*"; }
+claude-work() { ssh -t claude-work "claude $*"; }
 ```
+
+### Sdílené soubory
+
+`docker-compose.yml` mountuje `~/Desktop/work` do kontejneru jako `/home/petr/work`. Soubory jsou sdílené — editujete lokálně, Claude Code v kontejneru je vidí.
 
 ### Výsledek
 
 ```
 Tab 1: claude-personal     → lokální, osobní účet
-Tab 2: claude-work         → SSH do VM, enterprise účet
+Tab 2: claude-work         → Docker kontejner, enterprise účet
         oba mají stejný status line, fonty renderuje Ghostty lokálně
+        ~/Desktop/work je sdílený
 ```
+
+### Status line v remote
+
+Skript automaticky detekuje `CLAUDE_SSH_HOST` env var (nastavený v kontejneru). Když je remote:
+- VSC linky → `vscode://vscode-remote/ssh-remote+claude-work/path`
+- Oranžový segment s názvem hostu
+- Folder link → otevře ve VS Code Remote SSH
 
 ## Požadavky
 
 - **macOS + Linux** (skript je cross-platform)
 - **Ghostty** — terminál s podporou OSC 8, Nerd Font, true color
 - **Nerd Font** — MesloLGSDZ Nerd Font Mono
-- **jq** — `brew install jq` / `dnf install jq`
+- **Docker** — `brew install --cask docker`
+- **jq** — `brew install jq`
 - **VS Code + Remote SSH extension** — pro klikací remote linky

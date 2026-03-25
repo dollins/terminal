@@ -1,0 +1,13 @@
+services:
+  claude-work:
+    build: .
+    container_name: claude-work
+    ports:
+      - "2222:22"
+    volumes:
+      - claude-auth:/home/petr/.claude/credentials
+      - ~/Desktop/work:/home/petr/work
+    restart: unless-stopped
+
+volumes:
+  claude-auth:
