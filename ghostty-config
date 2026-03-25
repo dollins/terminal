@@ -1,0 +1,15 @@
+# Font
+font-family = MesloLGSDZ Nerd Font Mono
+
+# Vim-like scrollback navigation on macOS keyboard
+keybind = super+u=scroll_page_fractional:-0.5
+keybind = super+d=scroll_page_fractional:0.5
+keybind = super+g=scroll_to_top
+keybind = super+shift+g=scroll_to_bottom
+
+# Tab management
+keybind = super+shift+t=prompt_surface_title
+
+# Keep default copy/paste behavior
+keybind = super+c=copy_to_clipboard
+keybind = super+v=paste_from_clipboard
